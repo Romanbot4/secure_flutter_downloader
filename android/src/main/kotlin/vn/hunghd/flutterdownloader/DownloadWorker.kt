@@ -141,10 +141,11 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         dbHelper = TaskDbHelper.getInstance(context)
         taskDao = TaskDao(dbHelper!!)
         val url: String? = inputData.getString(ARG_URL)
+        val title: String? = inputData.getString(ARG_TITLE)
         val filename: String? = inputData.getString(ARG_FILE_NAME)
         val task = taskDao?.loadTask(id.toString())
         if (task != null && task.status == DownloadStatus.ENQUEUED) {
-            updateNotification(context, filename ?: url, DownloadStatus.CANCELED, -1, null, true)
+            updateNotification(context, title ?: filename ?: url, DownloadStatus.CANCELED, -1, null, true)
             taskDao?.updateTask(id.toString(), DownloadStatus.CANCELED, lastProgress)
         }
     }
@@ -210,13 +211,13 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             log("exists file for " + filename + "automatic resuming...")
         }
         return try {
-            downloadFile(applicationContext, url, savedDir, filename, headers, isResume, timeout, encryptionKey)
+            downloadFile(applicationContext, url, savedDir, filename, headers, isResume, timeout, encryptionKey, title)
             cleanUp()
             dbHelper = null
             taskDao = null
             Result.success()
         } catch (e: Exception) {
-            updateNotification(applicationContext, filename ?: url, DownloadStatus.FAILED, -1, null, true)
+            updateNotification(applicationContext, title ?: filename ?: url, DownloadStatus.FAILED, -1, null, true)
             taskDao?.updateTask(id.toString(), DownloadStatus.FAILED, lastProgress)
             e.printStackTrace()
             dbHelper = null
@@ -265,7 +266,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         headers: String,
         isResume: Boolean,
         timeout: Int,
-        encryptionKey: String?
+        encryptionKey: String?,
+        title: String?
     ) {
         var actualFilename = filename
         var url = fileURL
@@ -427,7 +429,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                         taskDao!!.updateTask(id.toString(), DownloadStatus.RUNNING, progress)
                         updateNotification(
                             context,
-                            actualFilename,
+                            title ?: actualFilename,
                             DownloadStatus.RUNNING,
                             progress,
                             null,
@@ -473,19 +475,19 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                     }
                 }
                 taskDao!!.updateTask(id.toString(), status, progress)
-                updateNotification(context, actualFilename, status, progress, pendingIntent, true)
+                updateNotification(context, title ?: actualFilename, status, progress, pendingIntent, true)
                 log(if (isStopped) "Download canceled" else "File downloaded")
             } else {
                 val loadedTask = taskDao!!.loadTask(id.toString())
                 val status =
                     if (isStopped) if (loadedTask!!.resumable) DownloadStatus.PAUSED else DownloadStatus.CANCELED else DownloadStatus.FAILED
                 taskDao!!.updateTask(id.toString(), status, lastProgress)
-                updateNotification(context, actualFilename ?: fileURL, status, -1, null, true)
+                updateNotification(context, title?:actualFilename ?: fileURL, status, -1, null, true)
                 log(if (isStopped) "Download canceled" else "Server replied HTTP code: $responseCode")
             }
         } catch (e: IOException) {
             taskDao!!.updateTask(id.toString(), DownloadStatus.FAILED, lastProgress)
-            updateNotification(context, actualFilename ?: fileURL, DownloadStatus.FAILED, -1, null, true)
+            updateNotification(context, title?: actualFilename ?: fileURL, DownloadStatus.FAILED, -1, null, true)
             e.printStackTrace()
         } finally {
             if (outputStream != null) {
