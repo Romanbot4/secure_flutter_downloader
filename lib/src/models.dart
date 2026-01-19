@@ -59,6 +59,8 @@ class DownloadTask {
     required this.savedDir,
     required this.timeCreated,
     required this.allowCellular,
+    required this.encryptionKey,
+    required this.title,
   });
 
   /// Unique identifier of this task.
@@ -85,10 +87,15 @@ class DownloadTask {
   /// Whether downloads can use cellular data
   final bool allowCellular;
 
+  /// Optional encryption key for this download file
+  final String? encryptionKey;
+
+  /// Optional title to show in notification for this download file
+  final String? title;
+
   @override
   String toString() =>
-      'DownloadTask(taskId: $taskId, status: $status, progress: $progress, url: $url, filename: $filename, savedDir: $savedDir, timeCreated: $timeCreated, allowCellular: $allowCellular)';
-
+      'DownloadTask(taskId: $taskId, status: $status, progress: $progress, url: $url, filename: $filename, savedDir: $savedDir, timeCreated: $timeCreated, allowCellular: $allowCellular, encryptionKey: $encryptionKey, title: $title)';
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) {
@@ -103,7 +110,9 @@ class DownloadTask {
         other.filename == filename &&
         other.savedDir == savedDir &&
         other.timeCreated == timeCreated &&
-        other.allowCellular == allowCellular;
+        other.allowCellular == allowCellular &&
+        other.encryptionKey == encryptionKey &&
+        other.title == title;
   }
 
   @override
@@ -117,6 +126,8 @@ class DownloadTask {
       savedDir,
       timeCreated,
       allowCellular,
+      encryptionKey,
+      title,
     );
   }
 }

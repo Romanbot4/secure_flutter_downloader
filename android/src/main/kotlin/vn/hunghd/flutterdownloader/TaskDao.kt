@@ -4,6 +4,10 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.provider.BaseColumns
+import android.util.Base64
+import androidx.core.database.getStringOrNull
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
 
 class TaskDao(private val dbHelper: TaskDbHelper) {
     private val projection = arrayOf(
@@ -21,7 +25,9 @@ class TaskDao(private val dbHelper: TaskDbHelper) {
         TaskEntry.COLUMN_NAME_SHOW_NOTIFICATION,
         TaskEntry.COLUMN_NAME_TIME_CREATED,
         TaskEntry.COLUMN_SAVE_IN_PUBLIC_STORAGE,
-        TaskEntry.COLUMN_ALLOW_CELLULAR
+        TaskEntry.COLUMN_ALLOW_CELLULAR,
+        TaskEntry.COLUMN_ENCRYPTION_KEY,
+        TaskEntry.COLUMN_NAME_TITLE,
     )
 
     fun insertOrUpdateNewTask(
@@ -35,7 +41,9 @@ class TaskDao(private val dbHelper: TaskDbHelper) {
         showNotification: Boolean,
         openFileFromNotification: Boolean,
         saveInPublicStorage: Boolean,
-        allowCellular: Boolean
+        allowCellular: Boolean,
+        encryptionKey: String?,
+        title: String?
     ) {
         val db = dbHelper.writableDatabase
         val values = ContentValues()
@@ -56,6 +64,8 @@ class TaskDao(private val dbHelper: TaskDbHelper) {
         values.put(TaskEntry.COLUMN_NAME_TIME_CREATED, System.currentTimeMillis())
         values.put(TaskEntry.COLUMN_SAVE_IN_PUBLIC_STORAGE, if (saveInPublicStorage) 1 else 0)
         values.put(TaskEntry.COLUMN_ALLOW_CELLULAR, if (allowCellular) 1 else 0)
+        values.put(TaskEntry.COLUMN_ENCRYPTION_KEY, encryptWithMasterKey(encryptionKey))
+        values.put(TaskEntry.COLUMN_NAME_TITLE, title)
         db.beginTransaction()
         try {
             db.insertWithOnConflict(
@@ -246,7 +256,9 @@ class TaskDao(private val dbHelper: TaskDbHelper) {
         val clickToOpenDownloadedFile = cursor.getShort(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_OPEN_FILE_FROM_NOTIFICATION)).toInt()
         val timeCreated = cursor.getLong(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_TIME_CREATED))
         val saveInPublicStorage = cursor.getShort(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_SAVE_IN_PUBLIC_STORAGE)).toInt()
-        val allowCelluar = cursor.getShort(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_ALLOW_CELLULAR)).toInt()
+        val allowCellular = cursor.getShort(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_ALLOW_CELLULAR)).toInt()
+        val encryptionKey = decryptWithMasterKey(cursor.getStringOrNull(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_ENCRYPTION_KEY)))
+        val title = cursor.getStringOrNull(cursor.getColumnIndexOrThrow(TaskEntry.COLUMN_NAME_TITLE))
         return DownloadTask(
             primaryId,
             taskId,
@@ -262,7 +274,35 @@ class TaskDao(private val dbHelper: TaskDbHelper) {
             clickToOpenDownloadedFile == 1,
             timeCreated,
             saveInPublicStorage == 1,
-            allowCellular = allowCelluar == 1
+            allowCellular = allowCellular == 1,
+            encryptionKey,
+            title
         )
+    }
+
+    fun encryptWithMasterKey(plainText: String?): String? {
+        if (plainText == null) return null
+
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, MasterKeyProvider.getMasterKey())
+
+        val iv = cipher.iv
+        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+
+        return Base64.encodeToString(iv + encrypted, Base64.NO_WRAP)
+    }
+
+    fun decryptWithMasterKey(encryptedText: String?): String? {
+        if (encryptedText == null) return null
+
+        val combined = Base64.decode(encryptedText, Base64.NO_WRAP)
+        val ivSize = 12
+        val iv = combined.sliceArray(0 until ivSize)
+        val ciphertext = combined.sliceArray(ivSize until combined.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.DECRYPT_MODE, MasterKeyProvider.getMasterKey(), spec)
+        val decrypted = cipher.doFinal(ciphertext)
+        return String(decrypted, Charsets.UTF_8)
     }
 }

@@ -45,7 +45,7 @@ class TaskDbHelper private constructor(context: Context) :
 
     companion object {
         const val DATABASE_VERSION = 4
-        const val DATABASE_NAME = "download_tasks.db"
+        const val DATABASE_NAME = "secure_download_tasks.db"
         private var instance: TaskDbHelper? = null
         private const val SQL_CREATE_ENTRIES = (
             "CREATE TABLE " + TaskEntry.TABLE_NAME + " (" +
@@ -55,6 +55,7 @@ class TaskDbHelper private constructor(context: Context) :
                 TaskEntry.COLUMN_NAME_STATUS + " INTEGER DEFAULT 0, " +
                 TaskEntry.COLUMN_NAME_PROGRESS + " INTEGER DEFAULT 0, " +
                 TaskEntry.COLUMN_NAME_FILE_NAME + " TEXT, " +
+                TaskEntry.COLUMN_NAME_TITLE + " TEXT, " +
                 TaskEntry.COLUMN_NAME_SAVED_DIR + " TEXT, " +
                 TaskEntry.COLUMN_NAME_HEADERS + " TEXT, " +
                 TaskEntry.COLUMN_NAME_MIME_TYPE + " VARCHAR(128), " +
@@ -63,7 +64,8 @@ class TaskDbHelper private constructor(context: Context) :
                 TaskEntry.COLUMN_NAME_OPEN_FILE_FROM_NOTIFICATION + " TINYINT DEFAULT 0, " +
                 TaskEntry.COLUMN_NAME_TIME_CREATED + " INTEGER DEFAULT 0, " +
                 TaskEntry.COLUMN_SAVE_IN_PUBLIC_STORAGE + " TINYINT DEFAULT 0, " +
-                TaskEntry.COLUMN_ALLOW_CELLULAR + " TINYINT DEFAULT 1" +
+                TaskEntry.COLUMN_ALLOW_CELLULAR + " TINYINT DEFAULT 1, " +
+                TaskEntry.COLUMN_ENCRYPTION_KEY + " TEXT" +
                 ")"
             )
         private const val SQL_DELETE_ENTRIES = "DROP TABLE IF EXISTS ${TaskEntry.TABLE_NAME}"

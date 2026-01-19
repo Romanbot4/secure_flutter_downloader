@@ -10,6 +10,7 @@ object TaskEntry : BaseColumns {
     const val COLUMN_NAME_URL = "url"
     const val COLUMN_NAME_SAVED_DIR = "saved_dir"
     const val COLUMN_NAME_FILE_NAME = "file_name"
+    const val COLUMN_NAME_TITLE = "title"
     const val COLUMN_NAME_MIME_TYPE = "mime_type"
     const val COLUMN_NAME_RESUMABLE = "resumable"
     const val COLUMN_NAME_HEADERS = "headers"
@@ -18,4 +19,5 @@ object TaskEntry : BaseColumns {
     const val COLUMN_NAME_TIME_CREATED = "time_created"
     const val COLUMN_SAVE_IN_PUBLIC_STORAGE = "save_in_public_storage"
     const val COLUMN_ALLOW_CELLULAR = "allow_cellular"
+    const val COLUMN_ENCRYPTION_KEY = "encryption_key"
 }

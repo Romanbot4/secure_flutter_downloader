@@ -1,4 +1,4 @@
-name: flutter_downloader_example
+name: secure_flutter_downloader_example
 description: Demonstrates how to use the flutter_downloader plugin.
 version: 1.0.0+1
 publish_to: none
@@ -11,10 +11,10 @@ dependencies:
   device_info_plus: ^11.2.1
   flutter:
     sdk: flutter
-  flutter_downloader:
-    path: ../
   path_provider: ^2.1.5
   permission_handler: ^11.3.1
+  secure_flutter_downloader:
+    path: ../
 
 dev_dependencies:
   flutter_test:

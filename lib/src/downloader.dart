@@ -7,7 +7,8 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
-import 'package:flutter_downloader/src/exceptions.dart';
+import 'package:secure_flutter_downloader/src/decrypt_helpers.dart';
+import 'package:secure_flutter_downloader/src/exceptions.dart';
 
 import 'callback_dispatcher.dart';
 import 'models.dart';
@@ -103,6 +104,8 @@ class FlutterDownloader {
     bool saveInPublicStorage = false,
     bool allowCellular = true,
     int timeout = 15000,
+    String? encryptionKey,
+    String? title,
   }) async {
     assert(_initialized, 'plugin flutter_downloader is not initialized');
     assert(Directory(savedDir).existsSync(), 'savedDir does not exist');
@@ -119,6 +122,8 @@ class FlutterDownloader {
         'save_in_public_storage': saveInPublicStorage,
         'timeout': timeout,
         'allow_cellular': allowCellular,
+        'encryption_key': encryptionKey,
+        'title': title,
       });
 
       if (taskId == null) {
@@ -163,6 +168,8 @@ class FlutterDownloader {
 
             // allowCellular field is true by default (similar to enqueue())
             allowCellular: (item['allow_cellular'] as bool?) ?? true,
+            encryptionKey: item['encryption_key'] as String?,
+            title: item['title'] as String?,
           );
         },
       ).toList();
@@ -221,6 +228,8 @@ class FlutterDownloader {
 
             // allowCellular field is true by default (similar to enqueue())
             allowCellular: (item['allow_cellular'] as bool?) ?? true,
+            encryptionKey: item['encryption_key'] as String?,
+            title: item['title'] as String?,
           );
         },
       ).toList();
@@ -444,4 +453,14 @@ class FlutterDownloader {
       print(message);
     }
   }
+
+  /// The same Base64 key used for encryption must be provided for decryption.
+  /// File must be encrypted file which is downloaded with encryption key
+  static Stream<List<int>> openDecryptRead({
+    required File encryptedFile,
+    required String base64Key,
+    int? start,
+    int? end,
+  }) =>
+      DecryptHelpers.openDecryptRead(encryptedFile, base64Key, start, end);
 }

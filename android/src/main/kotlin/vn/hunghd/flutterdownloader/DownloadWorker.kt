@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.provider.MediaStore
+import android.util.Base64
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -45,6 +46,10 @@ import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
+import javax.crypto.Cipher
+import javax.crypto.CipherOutputStream
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
@@ -160,6 +165,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         debug = inputData.getBoolean(ARG_DEBUG, false)
         step = inputData.getInt(ARG_STEP, 10)
         ignoreSsl = inputData.getBoolean(ARG_IGNORESSL, false)
+        val encryptionKey: String? = inputData.getString(ARG_ENCRYPTION_KEY)
+        val title: String? = inputData.getString(ARG_TITLE)
         val res = applicationContext.resources
         msgStarted = res.getString(R.string.flutter_downloader_notification_started)
         msgInProgress = res.getString(R.string.flutter_downloader_notification_in_progress)
@@ -187,7 +194,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         setupNotification(applicationContext)
         updateNotification(
             applicationContext,
-            filename ?: url,
+            title ?: filename ?: url,
             DownloadStatus.RUNNING,
             task.progress,
             null,
@@ -203,7 +210,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             log("exists file for " + filename + "automatic resuming...")
         }
         return try {
-            downloadFile(applicationContext, url, savedDir, filename, headers, isResume, timeout)
+            downloadFile(applicationContext, url, savedDir, filename, headers, isResume, timeout, encryptionKey)
             cleanUp()
             dbHelper = null
             taskDao = null
@@ -257,7 +264,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         filename: String?,
         headers: String,
         isResume: Boolean,
-        timeout: Int
+        timeout: Int,
+        encryptionKey: String?
     ) {
         var actualFilename = filename
         var url = fileURL
@@ -396,6 +404,9 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                         outputStream = FileOutputStream(file, false)
                     }
                 }
+
+                if(outputStream != null) outputStream = getOutputStream(outputStream, encryptionKey);
+
                 var count = downloadedBytes
                 var bytesRead: Int
                 val buffer = ByteArray(BUFFER_SIZE)
@@ -844,6 +855,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         const val ARG_STEP = "step"
         const val ARG_SAVE_IN_PUBLIC_STORAGE = "save_in_public_storage"
         const val ARG_IGNORESSL = "ignoreSsl"
+        const val ARG_ENCRYPTION_KEY = "encryption_key"
+        const val ARG_TITLE = "title"
         private val TAG = DownloadWorker::class.java.simpleName
         private const val BUFFER_SIZE = 4096
         private const val CHANNEL_ID = "FLUTTER_DOWNLOADER_NOTIFICATION"
@@ -894,4 +907,27 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     init {
         Handler(context.mainLooper).post { startBackgroundIsolate(context) }
     }
+
+    private fun getOutputStream(
+        outputStream: OutputStream,
+        encryptionKey: String?
+    ): OutputStream {
+        if (encryptionKey == null) return outputStream
+
+        val keyBytes = Base64.decode(encryptionKey, Base64.DEFAULT)
+        val secretKey = SecretKeySpec(keyBytes, "AES")
+
+        // 16-byte nonce
+        val iv = ByteArray(16)
+        SecureRandom().nextBytes(iv)
+
+        val cipher = Cipher.getInstance("AES/CTR/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, IvParameterSpec(iv))
+
+        // write IV first
+        outputStream.write(iv)
+
+        return CipherOutputStream(outputStream, cipher)
+    }
+
 }

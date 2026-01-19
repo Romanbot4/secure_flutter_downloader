@@ -1,8 +1,8 @@
-name: flutter_downloader
+name: secure_flutter_downloader
 description: Powerful plugin making it easy to download files.
 version: 1.12.0
-repository: https://github.com/fluttercommunity/flutter_downloader
-issue_tracker: https://github.com/fluttercommunity/flutter_downloader/issues
+repository: https://github.com/Romanbot4/secure_flutter_downloader
+issue_tracker: https://github.com/Romanbot4/secure_flutter_downloader/issues
 maintainer: Salma (@salmaahhmed)
 
 flutter:
@@ -21,6 +21,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:

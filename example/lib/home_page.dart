@@ -4,11 +4,11 @@ import 'dart:ui';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_downloader/flutter_downloader.dart';
-import 'package:flutter_downloader_example/data.dart';
-import 'package:flutter_downloader_example/download_list_item.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:secure_flutter_downloader/secure_flutter_downloader.dart';
+import 'package:secure_flutter_downloader_example/data.dart';
+import 'package:secure_flutter_downloader_example/download_list_item.dart';
 
 class MyHomePage extends StatefulWidget with WidgetsBindingObserver {
   const MyHomePage({super.key, required this.title, required this.platform});
