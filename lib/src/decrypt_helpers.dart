@@ -1,105 +1,223 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
+
 import 'package:pointycastle/export.dart';
 
-/// Stream AES-CTR decryption helper (seekable).
+/// ─────────────────────────────────────────────────────────────
+/// Public API (UNCHANGED)
+/// ─────────────────────────────────────────────────────────────
 abstract class DecryptHelpers {
-  /// The same Base64 key used for encryption must be provided for decryption.
-  /// File must be encrypted file which is downloaded with encryption key
+  /// Stream AES-CTR decryption helper (seekable).
   static Stream<List<int>> openDecryptRead(
     File encryptedFile,
     String base64Key, [
     int? start,
     int? end,
-  ]) async* {
-    final key = base64.decode(base64Key);
-    // Validate Key Length (AES-128 = 16, AES-256 = 32)
-    if (key.length != 16 && key.length != 32) {
-      throw ArgumentError('Invalid key length: ${key.length}');
-    }
-
-    final raf = await encryptedFile.open();
-
-    try {
-      final fileLength = await raf.length();
-
-      // skip nounce iv
-      if (fileLength < 16) {
-        throw StateError('File too short to contain IV');
-      }
-
-      final iv = await raf.read(16);
-
-      final effectiveStart = start ?? 0;
-      final payloadLength = fileLength - 16;
-      final effectiveEnd = end ?? (payloadLength - 1);
-
-      if (effectiveStart > effectiveEnd) {
-        return; // Empty range
-      }
-
-      const blockSize = 16;
-      final blockIndex = effectiveStart ~/ blockSize;
-      final blockOffset = effectiveStart % blockSize;
-
-      final counter = Uint8List.fromList(iv);
-      _incrementCounter(counter, blockIndex);
-
-      final cipher = StreamCipher('AES/CTR')
-        ..init(
-          false, // for decrypt
-          ParametersWithIV(
-            KeyParameter(Uint8List.fromList(key)),
-            counter,
-          ),
-        );
-
-      await raf.setPosition(16 + effectiveStart);
-
-      if (blockOffset > 0) {
-        // Encrypting zeros generates the keystream.
-        // We discard the result, but the cipher state advances.
-        cipher.process(Uint8List(blockOffset));
-      }
-
-      final buffer = Uint8List(64 * 1024);
-      var currentPosition = effectiveStart;
-
-      while (currentPosition <= effectiveEnd) {
-        final remaining = effectiveEnd - currentPosition + 1;
-        final toRead = remaining > buffer.length ? buffer.length : remaining;
-
-        final readBytes = await raf.readInto(buffer, 0, toRead);
-        if (readBytes == 0) {
-          break;
-        }
-
-        yield cipher.process(buffer.sublist(0, readBytes));
-
-        currentPosition += readBytes;
-      }
-    } finally {
-      await raf.close();
-    }
+  ]) {
+    return _DecryptWorker.instance.decrypt(
+      encryptedFile,
+      base64Key,
+      start ?? 0,
+      end,
+    );
   }
+}
 
-  /// Increments the CTR counter (treating the 16-byte array as a Big Endian integer).
-  static void _incrementCounter(Uint8List counter, int blocks) {
-    if (blocks == 0) {
+/// ─────────────────────────────────────────────────────────────
+/// Internal persistent worker (NEW, PRIVATE)
+/// ─────────────────────────────────────────────────────────────
+class _DecryptWorker {
+  _DecryptWorker._();
+  static final instance = _DecryptWorker._();
+
+  Isolate? _isolate;
+  SendPort? _sendPort;
+  final _ready = Completer<void>();
+
+  File? _currentFile;
+  String? _currentKey;
+
+  Future<void> _init() async {
+    if (_isolate != null) {
       return;
     }
 
-    var carry = blocks;
-    for (var i = counter.length - 1; i >= 0; i--) {
-      final sum = counter[i] + (carry & 0xff);
-      counter[i] = sum & 0xff;
+    final receivePort = ReceivePort();
+    _isolate = await Isolate.spawn(
+      _decryptIsolateMain,
+      receivePort.sendPort,
+    );
 
-      carry = (carry >> 8) + (sum >> 8);
+    _sendPort = await receivePort.first as SendPort;
+    _ready.complete();
+  }
 
-      if (carry == 0) {
-        break;
+  Stream<List<int>> decrypt(
+    File file,
+    String base64Key,
+    int start,
+    int? end,
+  ) {
+    final controller = StreamController<List<int>>();
+
+    () async {
+      await _init();
+
+      // Open file only if changed
+      if (_currentFile?.path != file.path || _currentKey != base64Key) {
+        _currentFile = file;
+        _currentKey = base64Key;
+        _sendPort!.send(_OpenFileCmd(file.path, base64Key));
       }
+
+      final replyPort = ReceivePort();
+      _sendPort!.send(
+        _DecryptCmd(start, end, replyPort.sendPort),
+      );
+
+      await for (final msg in replyPort) {
+        if (msg == null) {
+          replyPort.close();
+          await controller.close();
+          break;
+        }
+        controller.add(msg as List<int>);
+      }
+    }();
+
+    return controller.stream;
+  }
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// Isolate main
+/// ─────────────────────────────────────────────────────────────
+Future<void> _decryptIsolateMain(SendPort mainPort) async {
+  final commandPort = ReceivePort();
+  mainPort.send(commandPort.sendPort);
+
+  RandomAccessFile? raf;
+  Uint8List? key;
+  Uint8List? iv;
+  int? payloadLength;
+
+  await for (final cmd in commandPort) {
+    if (cmd is _OpenFileCmd) {
+      await raf?.close();
+
+      final file = File(cmd.path);
+      raf = await file.open();
+
+      key = base64.decode(cmd.base64Key);
+      if (key.length != 16 && key.length != 32) {
+        throw ArgumentError('Invalid AES key length');
+      }
+
+      iv = await raf.read(16);
+      payloadLength = (await raf.length()) - 16;
+    }
+
+    if (cmd is _DecryptCmd) {
+      if (raf == null || iv == null || key == null) {
+        cmd.reply.send(null);
+        continue;
+      }
+
+      final effectiveEnd = cmd.end ?? (payloadLength! - 1);
+
+      await _decryptRange(
+        raf,
+        key,
+        iv,
+        cmd.start,
+        effectiveEnd,
+        cmd.reply,
+      );
     }
   }
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// Decryption logic (same as original, optimized placement)
+/// ─────────────────────────────────────────────────────────────
+Future<void> _decryptRange(
+  RandomAccessFile raf,
+  Uint8List key,
+  Uint8List iv,
+  int start,
+  int end,
+  SendPort out,
+) async {
+  const blockSize = 16;
+
+  final blockIndex = start ~/ blockSize;
+  final blockOffset = start % blockSize;
+
+  final counter = Uint8List.fromList(iv);
+  _incrementCounter(counter, blockIndex);
+
+  final cipher = StreamCipher('AES/CTR')
+    ..init(
+      false,
+      ParametersWithIV(KeyParameter(key), counter),
+    );
+
+  await raf.setPosition(16 + start);
+
+  if (blockOffset > 0) {
+    cipher.process(Uint8List(blockOffset));
+  }
+
+  final buffer = Uint8List(64 * 1024);
+  var pos = start;
+
+  while (pos <= end) {
+    final remaining = end - pos + 1;
+    final read = await raf.readInto(
+      buffer,
+      0,
+      remaining > buffer.length ? buffer.length : remaining,
+    );
+
+    if (read == 0) {
+      break;
+    }
+
+    out.send(cipher.process(buffer.sublist(0, read)));
+    pos += read;
+  }
+
+  out.send(null);
+}
+
+/// CTR counter increment (big-endian)
+void _incrementCounter(Uint8List counter, int blocks) {
+  var carry = blocks;
+  for (var i = counter.length - 1; i >= 0; i--) {
+    final sum = counter[i] + (carry & 0xff);
+    counter[i] = sum & 0xff;
+    carry = (carry >> 8) + (sum >> 8);
+    if (carry == 0) {
+      break;
+    }
+  }
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// Commands (PRIVATE)
+/// ─────────────────────────────────────────────────────────────
+class _OpenFileCmd {
+  _OpenFileCmd(this.path, this.base64Key);
+  final String path;
+  final String base64Key;
+}
+
+class _DecryptCmd {
+  _DecryptCmd(this.start, this.end, this.reply);
+  final int start;
+  final int? end;
+  final SendPort reply;
 }
